@@ -19,6 +19,8 @@
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <FileVersion>1.0.0.0</FileVersion>
     <Version>0.7.1</Version>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>Cronos.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard1.0|AnyCPU'">
