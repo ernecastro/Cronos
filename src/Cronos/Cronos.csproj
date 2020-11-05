@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard1.0;netstandard2.0;net45;net40</TargetFrameworks>
-    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <DebugType>embedded</DebugType>
 
@@ -18,6 +18,11 @@
     <PackageTags>Cronos Cron Recurring</PackageTags>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <FileVersion>1.0.0.0</FileVersion>
+    <Version>0.7.1</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard1.0|AnyCPU'">
+    <DefineConstants />
   </PropertyGroup>
 
   <ItemGroup>

@@ -100,63 +100,61 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        public static unsafe CronExpression Parse(string expression, CronFormat format)
+        public static CronExpression Parse(string expression, CronFormat format)
         {
             if (string.IsNullOrEmpty(expression)) throw new ArgumentNullException(nameof(expression));
 
-            fixed (char* value = expression)
+            var pointer = 0;
+
+            SkipWhiteSpaces(ref pointer, expression);
+
+            CronExpression cronExpression;
+
+            if (Accept(ref pointer, expression, '@'))
             {
-                var pointer = value;
+                cronExpression = ParseMacro(ref pointer, expression);
+                SkipWhiteSpaces(ref pointer, expression);
 
-                SkipWhiteSpaces(ref pointer);
-
-                CronExpression cronExpression;
-
-                if (Accept(ref pointer, '@'))
-                {
-                    cronExpression = ParseMacro(ref pointer);
-                    SkipWhiteSpaces(ref pointer);
-
-                    if (cronExpression == null || !IsEndOfString(*pointer)) ThrowFormatException("Macro: Unexpected character '{0}' on position {1}.", *pointer, pointer - value);
-
-                    return cronExpression;
-                }
-
-                cronExpression = new CronExpression();
-
-                if (format == CronFormat.IncludeSeconds)
-                {
-                    cronExpression._second = ParseField(CronField.Seconds, ref pointer, ref cronExpression._flags);
-                    ParseWhiteSpace(CronField.Seconds, ref pointer);
-                }
-                else
-                {
-                    SetBit(ref cronExpression._second, CronField.Seconds.First);
-                }
-
-                cronExpression._minute = ParseField(CronField.Minutes, ref pointer, ref cronExpression._flags);
-                ParseWhiteSpace(CronField.Minutes, ref pointer);
-
-                cronExpression._hour = (int)ParseField(CronField.Hours, ref pointer, ref cronExpression._flags);
-                ParseWhiteSpace(CronField.Hours, ref pointer);
-
-                cronExpression._dayOfMonth = (int)ParseDayOfMonth(ref pointer, ref cronExpression._flags, ref cronExpression._lastMonthOffset);
-                ParseWhiteSpace(CronField.DaysOfMonth, ref pointer);
-
-                cronExpression._month = (short)ParseField(CronField.Months, ref pointer, ref cronExpression._flags);
-                ParseWhiteSpace(CronField.Months, ref pointer);
-
-                cronExpression._dayOfWeek = (byte)ParseDayOfWeek(ref pointer, ref cronExpression._flags, ref cronExpression._nthDayOfWeek);
-                ParseEndOfString(ref pointer);
-
-                // Make sundays equivalent.
-                if ((cronExpression._dayOfWeek & SundayBits) != 0)
-                {
-                    cronExpression._dayOfWeek |= SundayBits;
-                }
+                if (cronExpression == null || !IsEndOfString(pointer, expression)) ThrowFormatException("Macro: Unexpected character '{0}' on position {1}.", GetChar(pointer, expression), pointer);
 
                 return cronExpression;
             }
+
+            cronExpression = new CronExpression();
+
+            if (format == CronFormat.IncludeSeconds)
+            {
+                cronExpression._second = ParseField(CronField.Seconds, ref pointer, expression, ref cronExpression._flags);
+                ParseWhiteSpace(CronField.Seconds, ref pointer, expression);
+            }
+            else
+            {
+                SetBit(ref cronExpression._second, CronField.Seconds.First);
+            }
+
+            cronExpression._minute = ParseField(CronField.Minutes, ref pointer, expression, ref cronExpression._flags);
+            ParseWhiteSpace(CronField.Minutes, ref pointer, expression);
+
+            cronExpression._hour = (int)ParseField(CronField.Hours, ref pointer, expression, ref cronExpression._flags);
+            ParseWhiteSpace(CronField.Hours, ref pointer, expression);
+
+            cronExpression._dayOfMonth = (int)ParseDayOfMonth(ref pointer, expression, ref cronExpression._flags, ref cronExpression._lastMonthOffset);
+            ParseWhiteSpace(CronField.DaysOfMonth, ref pointer, expression);
+
+            cronExpression._month = (short)ParseField(CronField.Months, ref pointer, expression, ref cronExpression._flags);
+            ParseWhiteSpace(CronField.Months, ref pointer, expression);
+
+            cronExpression._dayOfWeek = (byte)ParseDayOfWeek(ref pointer, expression, ref cronExpression._flags, ref cronExpression._nthDayOfWeek);
+            ParseEndOfString(ref pointer, expression);
+
+            // Make sundays equivalent.
+            if ((cronExpression._dayOfWeek & SundayBits) != 0)
+            {
+                cronExpression._dayOfWeek |= SundayBits;
+            }
+
+            return cronExpression;
+
         }
 
         /// <summary>
@@ -286,7 +284,7 @@ namespace Cronos
         public override string ToString()
         {
             var expressionBuilder = new StringBuilder();
-            
+
             AppendFieldValue(expressionBuilder, CronField.Seconds, _second).Append(' ');
             AppendFieldValue(expressionBuilder, CronField.Minutes, _minute).Append(' ');
             AppendFieldValue(expressionBuilder, CronField.Hours, _hour).Append(' ');
@@ -374,7 +372,7 @@ namespace Cronos
             {
                 var currentOffset = from.Offset;
                 var standardOffset = zone.BaseUtcOffset;
-               
+
                 if (standardOffset != currentOffset)
                 {
                     var daylightOffset = TimeZoneHelper.GetDaylightOffset(zone, fromLocal);
@@ -427,6 +425,14 @@ namespace Cronos
 
             if (found == NotFound || found > endTimeTicks) return NotFound;
             return found;
+        }
+
+#if !NET40
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#endif
+        private static char GetChar(int pointer, string expression)
+        {
+            return pointer >= expression.Length ? '\0' : expression[pointer];
         }
 
         private long FindOccurence(long ticks, bool startInclusive)
@@ -549,121 +555,121 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe void SkipWhiteSpaces(ref char* pointer)
+        private static void SkipWhiteSpaces(ref int pointer, string expression)
         {
-            while (IsWhiteSpace(*pointer)) { pointer++; }
+            while (IsWhiteSpace(pointer, expression)) { pointer++; }
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe void ParseWhiteSpace(CronField prevField, ref char* pointer)
+        private static void ParseWhiteSpace(CronField prevField, ref int pointer, string expression)
         {
-            if (!IsWhiteSpace(*pointer)) ThrowFormatException(prevField, "Unexpected character '{0}'.", *pointer);
-            SkipWhiteSpaces(ref pointer);
+            if (!IsWhiteSpace(pointer, expression)) ThrowFormatException(prevField, "Unexpected character '{0}'.", GetChar(pointer, expression));
+            SkipWhiteSpaces(ref pointer, expression);
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe void ParseEndOfString(ref char* pointer)
+        private static void ParseEndOfString(ref int pointer, string expression)
         {
-            if (!IsWhiteSpace(*pointer) && !IsEndOfString(*pointer)) ThrowFormatException(CronField.DaysOfWeek, "Unexpected character '{0}'.", *pointer);
+            if (!IsEndOfString(pointer, expression) && !IsWhiteSpace(pointer, expression)) ThrowFormatException(CronField.DaysOfWeek, "Unexpected character '{0}'.", GetChar(pointer, expression));
 
-            SkipWhiteSpaces(ref pointer);
-            if (!IsEndOfString(*pointer)) ThrowFormatException("Unexpected character '{0}'.", *pointer);
+            SkipWhiteSpaces(ref pointer, expression);
+            if (!IsEndOfString(pointer, expression)) ThrowFormatException("Unexpected character '{0}'.", GetChar(pointer, expression));
         }
 
-        private static unsafe CronExpression ParseMacro(ref char* pointer)
+        private static CronExpression ParseMacro(ref int pointer, string expression)
         {
-            switch (ToUpper(*pointer++))
+            switch (ToUpper(GetChar(pointer++, expression)))
             {
                 case 'A':
-                    if (AcceptCharacter(ref pointer, 'N') &&
-                        AcceptCharacter(ref pointer, 'N') &&
-                        AcceptCharacter(ref pointer, 'U') &&
-                        AcceptCharacter(ref pointer, 'A') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'N') &&
+                        AcceptCharacter(ref pointer, expression, 'N') &&
+                        AcceptCharacter(ref pointer, expression, 'U') &&
+                        AcceptCharacter(ref pointer, expression, 'A') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Yearly;
                     return null;
                 case 'D':
-                    if (AcceptCharacter(ref pointer, 'A') &&
-                        AcceptCharacter(ref pointer, 'I') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'A') &&
+                        AcceptCharacter(ref pointer, expression, 'I') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Daily;
                     return null;
                 case 'E':
-                    if (AcceptCharacter(ref pointer, 'V') &&
-                        AcceptCharacter(ref pointer, 'E') &&
-                        AcceptCharacter(ref pointer, 'R') &&
-                        AcceptCharacter(ref pointer, 'Y') &&
-                        Accept(ref pointer, '_'))
+                    if (AcceptCharacter(ref pointer, expression, 'V') &&
+                        AcceptCharacter(ref pointer, expression, 'E') &&
+                        AcceptCharacter(ref pointer, expression, 'R') &&
+                        AcceptCharacter(ref pointer, expression, 'Y') &&
+                        Accept(ref pointer, expression, '_'))
                     {
-                        if (AcceptCharacter(ref pointer, 'M') &&
-                            AcceptCharacter(ref pointer, 'I') &&
-                            AcceptCharacter(ref pointer, 'N') &&
-                            AcceptCharacter(ref pointer, 'U') &&
-                            AcceptCharacter(ref pointer, 'T') &&
-                            AcceptCharacter(ref pointer, 'E'))
+                        if (AcceptCharacter(ref pointer, expression, 'M') &&
+                            AcceptCharacter(ref pointer, expression, 'I') &&
+                            AcceptCharacter(ref pointer, expression, 'N') &&
+                            AcceptCharacter(ref pointer, expression, 'U') &&
+                            AcceptCharacter(ref pointer, expression, 'T') &&
+                            AcceptCharacter(ref pointer, expression, 'E'))
                             return Minutely;
 
-                        if (*(pointer - 1) != '_') return null;
+                        if (GetChar(pointer - 1, expression) != '_') return null;
 
-                        if (AcceptCharacter(ref pointer, 'S') &&
-                            AcceptCharacter(ref pointer, 'E') &&
-                            AcceptCharacter(ref pointer, 'C') &&
-                            AcceptCharacter(ref pointer, 'O') &&
-                            AcceptCharacter(ref pointer, 'N') &&
-                            AcceptCharacter(ref pointer, 'D'))
+                        if (AcceptCharacter(ref pointer, expression, 'S') &&
+                            AcceptCharacter(ref pointer, expression, 'E') &&
+                            AcceptCharacter(ref pointer, expression, 'C') &&
+                            AcceptCharacter(ref pointer, expression, 'O') &&
+                            AcceptCharacter(ref pointer, expression, 'N') &&
+                            AcceptCharacter(ref pointer, expression, 'D'))
                             return Secondly;
                     }
 
                     return null;
                 case 'H':
-                    if (AcceptCharacter(ref pointer, 'O') &&
-                        AcceptCharacter(ref pointer, 'U') &&
-                        AcceptCharacter(ref pointer, 'R') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'O') &&
+                        AcceptCharacter(ref pointer, expression, 'U') &&
+                        AcceptCharacter(ref pointer, expression, 'R') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Hourly;
                     return null;
                 case 'M':
-                    if (AcceptCharacter(ref pointer, 'O') &&
-                        AcceptCharacter(ref pointer, 'N') &&
-                        AcceptCharacter(ref pointer, 'T') &&
-                        AcceptCharacter(ref pointer, 'H') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'O') &&
+                        AcceptCharacter(ref pointer, expression, 'N') &&
+                        AcceptCharacter(ref pointer, expression, 'T') &&
+                        AcceptCharacter(ref pointer, expression, 'H') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Monthly;
 
-                    if (ToUpper(*(pointer - 1)) == 'M' &&
-                        AcceptCharacter(ref pointer, 'I') &&
-                        AcceptCharacter(ref pointer, 'D') &&
-                        AcceptCharacter(ref pointer, 'N') &&
-                        AcceptCharacter(ref pointer, 'I') &&
-                        AcceptCharacter(ref pointer, 'G') &&
-                        AcceptCharacter(ref pointer, 'H') &&
-                        AcceptCharacter(ref pointer, 'T'))
+                    if (ToUpper(GetChar(pointer - 1, expression)) == 'M' &&
+                        AcceptCharacter(ref pointer, expression, 'I') &&
+                        AcceptCharacter(ref pointer, expression, 'D') &&
+                        AcceptCharacter(ref pointer, expression, 'N') &&
+                        AcceptCharacter(ref pointer, expression, 'I') &&
+                        AcceptCharacter(ref pointer, expression, 'G') &&
+                        AcceptCharacter(ref pointer, expression, 'H') &&
+                        AcceptCharacter(ref pointer, expression, 'T'))
                         return Daily;
 
                     return null;
                 case 'W':
-                    if (AcceptCharacter(ref pointer, 'E') &&
-                        AcceptCharacter(ref pointer, 'E') &&
-                        AcceptCharacter(ref pointer, 'K') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'E') &&
+                        AcceptCharacter(ref pointer, expression, 'E') &&
+                        AcceptCharacter(ref pointer, expression, 'K') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Weekly;
                     return null;
                 case 'Y':
-                    if (AcceptCharacter(ref pointer, 'E') &&
-                        AcceptCharacter(ref pointer, 'A') &&
-                        AcceptCharacter(ref pointer, 'R') &&
-                        AcceptCharacter(ref pointer, 'L') &&
-                        AcceptCharacter(ref pointer, 'Y'))
+                    if (AcceptCharacter(ref pointer, expression, 'E') &&
+                        AcceptCharacter(ref pointer, expression, 'A') &&
+                        AcceptCharacter(ref pointer, expression, 'R') &&
+                        AcceptCharacter(ref pointer, expression, 'L') &&
+                        AcceptCharacter(ref pointer, expression, 'Y'))
                         return Yearly;
                     return null;
                 default:
@@ -672,40 +678,40 @@ namespace Cronos
             }
         }
 
-        private static unsafe long ParseField(CronField field, ref char* pointer, ref CronExpressionFlag flags)
+        private static long ParseField(CronField field, ref int pointer, string expression, ref CronExpressionFlag flags)
         {
-            if (Accept(ref pointer, '*') || Accept(ref pointer, '?'))
+            if (Accept(ref pointer, expression, '*') || Accept(ref pointer, expression, '?'))
             {
                 if (field.CanDefineInterval) flags |= CronExpressionFlag.Interval;
-                return ParseStar(field, ref pointer);
+                return ParseStar(field, ref pointer, expression);
             }
 
-            var num = ParseValue(field, ref pointer);
+            var num = ParseValue(field, ref pointer, expression);
 
-            var bits = ParseRange(field, ref pointer, num, ref flags);
-            if (Accept(ref pointer, ',')) bits |= ParseList(field, ref pointer, ref flags);
+            var bits = ParseRange(field, ref pointer, expression, num, ref flags);
+            if (Accept(ref pointer, expression, ',')) bits |= ParseList(field, ref pointer, expression, ref flags);
 
             return bits;
         }
 
-        private static unsafe long ParseDayOfMonth(ref char* pointer, ref CronExpressionFlag flags, ref byte lastDayOffset)
+        private static long ParseDayOfMonth(ref int pointer, string expression, ref CronExpressionFlag flags, ref byte lastDayOffset)
         {
             var field = CronField.DaysOfMonth;
 
-            if (Accept(ref pointer, '*') || Accept(ref pointer, '?')) return ParseStar(field, ref pointer);
+            if (Accept(ref pointer, expression, '*') || Accept(ref pointer, expression, '?')) return ParseStar(field, ref pointer, expression);
 
-            if (AcceptCharacter(ref pointer, 'L')) return ParseLastDayOfMonth(field, ref pointer, ref flags, ref lastDayOffset);
+            if (AcceptCharacter(ref pointer, expression, 'L')) return ParseLastDayOfMonth(field, ref pointer, expression, ref flags, ref lastDayOffset);
 
-            var dayOfMonth = ParseValue(field, ref pointer);
+            var dayOfMonth = ParseValue(field, ref pointer, expression);
 
-            if (AcceptCharacter(ref pointer, 'W'))
+            if (AcceptCharacter(ref pointer, expression, 'W'))
             {
                 flags |= CronExpressionFlag.NearestWeekday;
                 return GetBit(dayOfMonth);
             }
 
-            var bits = ParseRange(field, ref pointer, dayOfMonth, ref flags);
-            if (Accept(ref pointer, ',')) bits |= ParseList(field, ref pointer, ref flags);
+            var bits = ParseRange(field, ref pointer, expression, dayOfMonth, ref flags);
+            if (Accept(ref pointer, expression, ',')) bits |= ParseList(field, ref pointer, expression, ref flags);
 
             return bits;
         }
@@ -713,18 +719,18 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe long ParseDayOfWeek(ref char* pointer, ref CronExpressionFlag flags, ref byte nthWeekDay)
+        private static long ParseDayOfWeek(ref int pointer, string expression, ref CronExpressionFlag flags, ref byte nthWeekDay)
         {
             var field = CronField.DaysOfWeek;
-            if (Accept(ref pointer, '*') || Accept(ref pointer, '?')) return ParseStar(field, ref pointer);
+            if (Accept(ref pointer, expression, '*') || Accept(ref pointer, expression, '?')) return ParseStar(field, ref pointer, expression);
 
-            var dayOfWeek = ParseValue(field, ref pointer);
+            var dayOfWeek = ParseValue(field, ref pointer, expression);
 
-            if (AcceptCharacter(ref pointer, 'L')) return ParseLastWeekDay(dayOfWeek, ref flags);
-            if (Accept(ref pointer, '#')) return ParseNthWeekDay(field, ref pointer, dayOfWeek, ref flags, out nthWeekDay);
+            if (AcceptCharacter(ref pointer, expression, 'L')) return ParseLastWeekDay(dayOfWeek, ref flags);
+            if (Accept(ref pointer, expression, '#')) return ParseNthWeekDay(field, ref pointer, expression, dayOfWeek, ref flags, out nthWeekDay);
 
-            var bits = ParseRange(field, ref pointer, dayOfWeek, ref flags);
-            if (Accept(ref pointer, ',')) bits |= ParseList(field, ref pointer, ref flags);
+            var bits = ParseRange(field, ref pointer, expression, dayOfWeek, ref flags);
+            if (Accept(ref pointer, expression, ',')) bits |= ParseList(field, ref pointer, expression, ref flags);
 
             return bits;
         }
@@ -733,74 +739,74 @@ namespace Cronos
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe long ParseStar(CronField field, ref char* pointer)
+        private static long ParseStar(CronField field, ref int pointer, string expression)
         {
-            return Accept(ref pointer, '/')
-                ? ParseStep(field, ref pointer, field.First, field.Last)
+            return Accept(ref pointer, expression, '/')
+                ? ParseStep(field, ref pointer, expression, field.First, field.Last)
                 : field.AllBits;
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe long ParseList(CronField field, ref char* pointer, ref CronExpressionFlag flags)
+        private static long ParseList(CronField field, ref int pointer, string expression, ref CronExpressionFlag flags)
         {
-            var num = ParseValue(field, ref pointer);
-            var bits = ParseRange(field, ref pointer, num, ref flags);
+            var num = ParseValue(field, ref pointer, expression);
+            var bits = ParseRange(field, ref pointer, expression, num, ref flags);
 
             do
             {
-                if (!Accept(ref pointer, ',')) return bits;
+                if (!Accept(ref pointer, expression, ',')) return bits;
 
-                bits |= ParseList(field, ref pointer, ref flags);
+                bits |= ParseList(field, ref pointer, expression, ref flags);
             } while (true);
         }
 
-        private static unsafe long ParseRange(CronField field, ref char* pointer, int low, ref CronExpressionFlag flags)
+        private static long ParseRange(CronField field, ref int pointer, string expression, int low, ref CronExpressionFlag flags)
         {
-            if (!Accept(ref pointer, '-'))
+            if (!Accept(ref pointer, expression, '-'))
             {
-                if (!Accept(ref pointer, '/')) return GetBit(low);
+                if (!Accept(ref pointer, expression, '/')) return GetBit(low);
 
                 if (field.CanDefineInterval) flags |= CronExpressionFlag.Interval;
-                return ParseStep(field, ref pointer, low, field.Last);
+                return ParseStep(field, ref pointer, expression, low, field.Last);
             }
 
             if (field.CanDefineInterval) flags |= CronExpressionFlag.Interval;
 
-            var high = ParseValue(field, ref pointer);
-            if (Accept(ref pointer, '/')) return ParseStep(field, ref pointer, low, high);
+            var high = ParseValue(field, ref pointer, expression);
+            if (Accept(ref pointer, expression, '/')) return ParseStep(field, ref pointer, expression, low, high);
             return GetBits(field, low, high, 1);
         }
 
-        private static unsafe long ParseStep(CronField field, ref char* pointer, int low, int high)
+        private static long ParseStep(CronField field, ref int pointer, string expression, int low, int high)
         {
             // Get the step size -- note: we don't pass the
             // names here, because the number is not an
             // element id, it's a step size.  'low' is
             // sent as a 0 since there is no offset either.
-            var step = ParseNumber(field, ref pointer, 1, field.Last);
+            var step = ParseNumber(field, ref pointer, expression, 1, field.Last);
             return GetBits(field, low, high, step);
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe long ParseLastDayOfMonth(CronField field, ref char* pointer, ref CronExpressionFlag flags, ref byte lastMonthOffset)
+        private static long ParseLastDayOfMonth(CronField field, ref int pointer, string expression, ref CronExpressionFlag flags, ref byte lastMonthOffset)
         {
             flags |= CronExpressionFlag.DayOfMonthLast;
 
-            if (Accept(ref pointer, '-')) lastMonthOffset = (byte)ParseNumber(field, ref pointer, 0, field.Last - 1);
-            if (AcceptCharacter(ref pointer, 'W')) flags |= CronExpressionFlag.NearestWeekday;
+            if (Accept(ref pointer, expression, '-')) lastMonthOffset = (byte)ParseNumber(field, ref pointer, expression, 0, field.Last - 1);
+            if (AcceptCharacter(ref pointer, expression, 'W')) flags |= CronExpressionFlag.NearestWeekday;
             return field.AllBits;
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe long ParseNthWeekDay(CronField field, ref char* pointer, int dayOfWeek, ref CronExpressionFlag flags, out byte nthDayOfWeek)
+        private static long ParseNthWeekDay(CronField field, ref int pointer, string expression, int dayOfWeek, ref CronExpressionFlag flags, out byte nthDayOfWeek)
         {
-            nthDayOfWeek = (byte)ParseNumber(field, ref pointer, MinNthDayOfWeek, MaxNthDayOfWeek);
+            nthDayOfWeek = (byte)ParseNumber(field, ref pointer, expression, MinNthDayOfWeek, MaxNthDayOfWeek);
             flags |= CronExpressionFlag.NthDayOfWeek;
             return GetBit(dayOfWeek);
         }
@@ -818,9 +824,9 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe bool Accept(ref char* pointer, char character)
+        private static bool Accept(ref int pointer, string expression, char character)
         {
-            if (*pointer == character)
+            if (GetChar(pointer, expression) == character)
             {
                 pointer++;
                 return true;
@@ -832,9 +838,9 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe bool AcceptCharacter(ref char* pointer, char character)
+        private static bool AcceptCharacter(ref int pointer, string expression, char character)
         {
-            if (ToUpper(*pointer) == character)
+            if (ToUpper(GetChar(pointer, expression)) == character)
             {
                 pointer++;
                 return true;
@@ -843,9 +849,9 @@ namespace Cronos
             return false;
         }
 
-        private static unsafe int ParseNumber(CronField field, ref char* pointer, int low, int high)
+        private static int ParseNumber(CronField field, ref int pointer, string expression, int low, int high)
         {
-            var num = GetNumber(ref pointer, null);
+            var num = GetNumber(ref pointer, expression, null);
             if (num == -1 || num < low || num > high)
             {
                 ThrowFormatException(field, "Value must be a number between {0} and {1} (all inclusive).", low, high);
@@ -856,9 +862,9 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static unsafe int ParseValue(CronField field, ref char* pointer)
+        private static int ParseValue(CronField field, ref int pointer, string expression)
         {
-            var num = GetNumber(ref pointer, field.Names);
+            var num = GetNumber(ref pointer, expression, field.Names);
             if (num == -1 || num < field.First || num > field.Last)
             {
                 ThrowFormatException(field, "Value must be a number between {0} and {1} (all inclusive).", field.First, field.Last);
@@ -876,7 +882,7 @@ namespace Cronos
             // Unset 7 bit for Day of week field because both 0 and 7 stand for Sunday.
             if (field == CronField.DaysOfWeek) fieldValue &= ~(1 << field.Last);
 
-            for (var i = GetFirstSet(fieldValue);; i = GetFirstSet(fieldValue >> i << i))
+            for (var i = GetFirstSet(fieldValue); ; i = GetFirstSet(fieldValue >> i << i))
             {
                 expressionBuilder.Append(i);
                 if (fieldValue >> ++i == 0) break;
@@ -951,7 +957,7 @@ namespace Cronos
             if (field == CronField.DaysOfWeek) high--;
 
             var bits = GetRangeBits(num1, high, step);
-            
+
             num1 = field.First + step - (high - num1) % step - 1;
             return bits | GetRangeBits(num1, num2, step);
         }
@@ -964,30 +970,30 @@ namespace Cronos
             return 1L << num1;
         }
 
-        private static unsafe int GetNumber(ref char* pointer, int[] names)
+        private static int GetNumber(ref int pointer, string expression, int[] names)
         {
-            if (IsDigit(*pointer))
+            if (IsDigit(pointer, expression))
             {
-                var num = GetNumeric(*pointer++);
+                var num = GetNumeric(GetChar(pointer++, expression));
 
-                if (!IsDigit(*pointer)) return num;
+                if (!IsDigit(pointer, expression)) return num;
 
-                num = num * 10 + GetNumeric(*pointer++);
+                num = num * 10 + GetNumeric(GetChar(pointer++, expression));
 
-                if (!IsDigit(*pointer)) return num;
+                if (!IsDigit(pointer, expression)) return num;
                 return -1;
             }
 
             if (names == null) return -1;
 
-            if (!IsLetter(*pointer)) return -1;
-            var buffer = ToUpper(*pointer++);
+            if (!IsLetter(pointer, expression)) return -1;
+            var buffer = ToUpper(GetChar(pointer++, expression));
 
-            if (!IsLetter(*pointer)) return -1;
-            buffer |= ToUpper(*pointer++) << 8;
+            if (!IsLetter(pointer, expression)) return -1;
+            buffer |= ToUpper(GetChar(pointer++, expression)) << 8;
 
-            if (!IsLetter(*pointer)) return -1;
-            buffer |= ToUpper(*pointer++) << 16;
+            if (!IsLetter(pointer, expression)) return -1;
+            buffer |= ToUpper(GetChar(pointer++, expression)) << 16;
 
             var length = names.Length;
 
@@ -1045,32 +1051,36 @@ namespace Cronos
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static bool IsEndOfString(int code)
+        private static bool IsEndOfString(int pointer, string expression)
         {
+            var code = GetChar(pointer, expression);
             return code == '\0';
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static bool IsWhiteSpace(int code)
+        private static bool IsWhiteSpace(int pointer, string expression)
         {
+            var code = GetChar(pointer, expression);
             return code == '\t' || code == ' ';
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static bool IsDigit(int code)
+        private static bool IsDigit(int pointer, string expression)
         {
+            var code = GetChar(pointer, expression);
             return code >= 48 && code <= 57;
         }
 
 #if !NET40
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 #endif
-        private static bool IsLetter(int code)
+        private static bool IsLetter(int pointer, string expression)
         {
+            var code = GetChar(pointer, expression);
             return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
         }
 
